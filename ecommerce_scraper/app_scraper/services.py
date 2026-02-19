@@ -1,11 +1,14 @@
-import asyncio
 import aiohttp
 import logging
 from typing import Dict
 from decimal import Decimal
 from django.utils import timezone
+import os
+from dotenv import load_dotenv
+from asgiref.sync import sync_to_async
 from .models import Store, Category, Subcategory, Product
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 class StoreService:
@@ -15,10 +18,11 @@ class StoreService:
     
 class CategoryService:
     @staticmethod
-    def save_category(store_id, category_data) -> Category:
+    @sync_to_async
+    def save_category(category_data) -> Category:
         category, created = Category.objects.update_or_create(
-            vip_id = category_data['id'],
-            store = store_id,
+            vip_id = category_data['vip_id'],
+            store = category_data['store'],
             defaults = {
                 'name': category_data['name'],
                 'link': category_data['link']
@@ -28,13 +32,14 @@ class CategoryService:
 
 class SubcategoryService:
     @staticmethod
-    def save_subcategory(category_id, sub_data) -> Subcategory:
+    @sync_to_async
+    def save_subcategory(subcategory_data) -> Subcategory:
         subcategory, created = Subcategory.objects.update_or_create(
-            vip_id = sub_data['id'],
-            category = category_id,
+            vip_id = subcategory_data['vip_id'],
+            category = subcategory_data['category'],
             defaults={
-                'name': sub_data['name'],
-                'link': sub_data['link']
+                'name': subcategory_data['name'],
+                'link': subcategory_data['link']
             }
         )
         return subcategory
@@ -62,9 +67,10 @@ class ProductService:
         return product
 
 class VIPScraper:
-    vip_backend_url = ""
+    vip_backend_url = os.getenv('VIP_BACKEND_URL')
     
     def __init__(self, store_config: Store):
+        self.store_id = store_config.id
         self.store_name = store_config.name
         self.domain_key = store_config.domain_key
         self.organization_id = store_config.organization_id
@@ -81,7 +87,7 @@ class VIPScraper:
             "domainkey": self.domain_key,
         }
 
-    async def fetch_categories(self, session: aiohttp.ClientSession) -> Dict:
+    async def fetch_categories(self, session: aiohttp.ClientSession, store: Store) -> Dict:
         url = self.store_base_url + "arvore"
         async with session.get(url, headers=self.headers) as resp:
             data = await resp.json()
@@ -89,13 +95,19 @@ class VIPScraper:
             
             # Lógica para extrair slugs de categorias nível 2
             categories = []
-            for cat in data['data']:
-                category = {'name': cat['descricao'], 'subcategories': []}
+            for cat in data["data"]:
+                print('cat ' + cat["descricao"])
+                category = {"name": cat["descricao"], "vip_id": cat["classificacao_mercadologica_id"], "link": cat["link"], "store": store}
+                category_stored = await CategoryService.save_category(category_data=category)
                 subcategories = []
                 for sub in cat['children']:
-                    subcategories.append(sub['descricao'])
+                    print('sub ' + sub["descricao"])
+                    subcategory = {"name": sub["descricao"], "vip_id": sub["classificacao_mercadologica_id"], "link": sub["link"], "category": category_stored}
+                    subcategory_stored = await SubcategoryService.save_subcategory(subcategory_data=subcategory)
+                    subcategories.append(subcategory_stored)
                 category['subcategories'] = subcategories
                 categories.append(category)
+            print("finish categorieeeeeeeeeeeeesssssssss")
             return categories
             
 
