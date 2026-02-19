@@ -2,19 +2,75 @@ import asyncio
 import aiohttp
 import logging
 from typing import Dict
+from decimal import Decimal
+from django.utils import timezone
+from .models import Store, Category, Subcategory, Product
 
 logger = logging.getLogger(__name__)
+
+class StoreService:
+    @staticmethod
+    def list_stores() -> Store:
+        return Store.objects.all()
+    
+class CategoryService:
+    @staticmethod
+    def save_category(store_id, category_data) -> Category:
+        category, created = Category.objects.update_or_create(
+            vip_id = category_data['id'],
+            store = store_id,
+            defaults = {
+                'name': category_data['name'],
+                'link': category_data['link']
+            }
+        )
+        return category
+
+class SubcategoryService:
+    @staticmethod
+    def save_subcategory(category_id, sub_data) -> Subcategory:
+        subcategory, created = Subcategory.objects.update_or_create(
+            vip_id = sub_data['id'],
+            category = category_id,
+            defaults={
+                'name': sub_data['name'],
+                'link': sub_data['link']
+            }
+        )
+        return subcategory
+
+class ProductService:
+    @staticmethod
+    def save_product(store_id, subcategory_id, prod_data) -> Product:
+        regular_price = Decimal(str(prod_data['regular_price']))
+        offer_price = Decimal(str(prod_data['offer_price'])) if prod_data.get('offer_price') else None
+
+        product, created = Product.objects.update_or_create(
+            vip_id = prod_data['id'],
+            category = subcategory_id,
+            defaults={
+                'name': prod_data['name'],
+                'ean': prod_data.get('ean', ''),
+                'regular_price': regular_price,
+                'is_offer': prod_data.get('is_offer', False),
+                'offer_price': offer_price,
+                'check_date': timezone.now(),
+                'store': store_id,
+                'subcategory': subcategory_id
+            }
+        )
+        return product
 
 class VIPScraper:
     vip_backend_url = ""
     
-    def __init__(self, store_config: Dict):
-        self.store_name = store_config['name']
-        self.domain_key = store_config['domain_key']
-        self.organization_id = store_config['organization_id']
-        self.subsidiary_id = store_config['subsidiary_id']
-        self.distribution_center_id = store_config['distribution_center_id']
-        self.store_token = store_config['store_token']
+    def __init__(self, store_config: Store):
+        self.store_name = store_config.name
+        self.domain_key = store_config.domain_key
+        self.organization_id = store_config.organization_id
+        self.subsidiary_id = store_config.subsidiary_id
+        self.distribution_center_id = store_config.distribution_center_id
+        self.store_token = store_config.store_token
 
         self.store_base_url = VIPScraper.vip_backend_url + str(self.organization_id) + "/filial/" + self.subsidiary_id + "/centro_distribuicao/" + self.distribution_center_id + "/loja/classificacoes_mercadologicas/departamentos/"
         
