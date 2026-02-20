@@ -20,9 +20,10 @@ class CategoryService:
     @staticmethod
     @sync_to_async
     def save_category(category_data) -> Category:
+        store = Store.objects.get(id=category_data['store'])
         category, created = Category.objects.update_or_create(
             vip_id = category_data['vip_id'],
-            store = category_data['store'],
+            store = store,
             defaults = {
                 'name': category_data['name'],
                 'link': category_data['link']
@@ -34,9 +35,10 @@ class SubcategoryService:
     @staticmethod
     @sync_to_async
     def save_subcategory(subcategory_data) -> Subcategory:
+        category = Category.objects.get(id=subcategory_data['category'])
         subcategory, created = Subcategory.objects.update_or_create(
             vip_id = subcategory_data['vip_id'],
-            category = subcategory_data['category'],
+            category = category,
             defaults={
                 'name': subcategory_data['name'],
                 'link': subcategory_data['link']
@@ -87,36 +89,32 @@ class VIPScraper:
             "domainkey": self.domain_key,
         }
 
-    async def fetch_categories(self, session: aiohttp.ClientSession, store: Store) -> Dict:
+    async def fetch_categories(self, session: aiohttp.ClientSession, store_id) -> Dict:
         url = self.store_base_url + "arvore"
         async with session.get(url, headers=self.headers) as resp:
             data = await resp.json()
             print("===================================")
             
-            # Lógica para extrair slugs de categorias nível 2
             categories = []
             for cat in data["data"]:
                 print('cat ' + cat["descricao"])
-                category = {"name": cat["descricao"], "vip_id": cat["classificacao_mercadologica_id"], "link": cat["link"], "store": store}
+                category = {"name": cat["descricao"], "vip_id": cat["classificacao_mercadologica_id"], "link": cat["link"], "store": store_id}
                 category_stored = await CategoryService.save_category(category_data=category)
                 subcategories = []
                 for sub in cat['children']:
-                    print('sub ' + sub["descricao"])
-                    subcategory = {"name": sub["descricao"], "vip_id": sub["classificacao_mercadologica_id"], "link": sub["link"], "category": category_stored}
+                    subcategory = {"name": sub["descricao"], "vip_id": sub["classificacao_mercadologica_id"], "link": sub["link"], "category": category_stored.id}
                     subcategory_stored = await SubcategoryService.save_subcategory(subcategory_data=subcategory)
-                    subcategories.append(subcategory_stored)
+                    subcategory['id'] = subcategory_stored.id
+                    subcategories.append(subcategory)
                 category['subcategories'] = subcategories
                 categories.append(category)
             print("finish categorieeeeeeeeeeeeesssssssss")
             return categories
             
 
-    async def fetch_products(self, session: aiohttp.ClientSession):
-        # category_slug: str
+    async def fetch_products(self, session: aiohttp.ClientSession, category_vip_id, subcategory_vip_id):
         page = 1
         all_products = []
-        category_id = 3
-        subcategory_id = 22
         
         #while True:
         #params = {
@@ -124,8 +122,8 @@ class VIPScraper:
         #    "page": page,
         #    "limit": 50
         #}
-
-        url = self.store_base_url + str(category_id) + "/produtos?page=" + str(page) + "&secao=" + str(subcategory_id)
+        
+        url = self.store_base_url + str(category_vip_id) + "/produtos?page=" + str(page) + "&secao=" + str(subcategory_vip_id)
         async with session.get(url, headers=self.headers) as resp:
             #if resp.status != 200:
             #    break
@@ -138,6 +136,7 @@ class VIPScraper:
             #    break
             
             for p in products:
+                print(p['descricao'])
                 if p.get('disponivel', False):
                     all_products.append({
                         "product_code": p['produto_id'],
@@ -146,9 +145,9 @@ class VIPScraper:
                         "regular_price": p['preco'],
                         "is_offer": p['em_oferta'],
                         "offer_price": p.get('oferta', {}).get('preco_oferta', 0) if p['em_oferta'] else 0,
-                        "check_date": 'hoje',
                         "category": p['secao_id'],
                         "store_name": self.store_name
                     })
             page += 1
+
         return all_products

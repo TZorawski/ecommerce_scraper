@@ -22,14 +22,14 @@ class Command(BaseCommand):
             STORES = await sync_to_async(list)(StoreService.list_stores())
             for store in STORES:
                 scraper = VIPScraper(store_config=store)
-                tasks.append(self.process_store(sem, scraper, store))
+                tasks.append(self.process_store(sem, scraper, store_id=store.id))
             await asyncio.gather(*tasks)
 
         
         asyncio.run(run_all())
         self.stdout.write(self.style.SUCCESS('Processo finalizado com sucesso!'))
 
-    async def process_store(self, sem, scraper, store):
+    async def process_store(self, sem, scraper, store_id):
         # Lógica para chamar o fetch_categories e fetch_products 
         # e salvar no banco usando sync_to_async do Django ou loop.run_in_executor
         async with sem:
@@ -37,8 +37,15 @@ class Command(BaseCommand):
                 self.stdout.write(f"Iniciando {scraper.store_name}...")
 
                 try:
-                    categories = await scraper.fetch_categories(session, store)
-                    #products = await scraper.fetch_products(session)
+                    categories = await scraper.fetch_categories(session, store_id)
+                    products = []
+                    for category in categories:
+                        for subcategory in category["subcategories"]:
+                            category_vip_id = category["vip_id"]
+                            subcategory_vip_id = subcategory["vip_id"]
+                            products = await scraper.fetch_products(session, category_vip_id, subcategory_vip_id)
+                            break
+                        break
                     #print(categories)
                     #print(products)
                 except Exception as e:
