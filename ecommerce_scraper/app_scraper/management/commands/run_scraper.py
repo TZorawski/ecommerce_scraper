@@ -3,7 +3,6 @@ import aiohttp
 from django.core.management.base import BaseCommand
 from app_scraper.services import VIPScraper, StoreService, ProductService
 from asgiref.sync import sync_to_async
-#from scraper.models import ProductScrap
 
 class Command(BaseCommand):
 
@@ -29,16 +28,16 @@ class Command(BaseCommand):
                 self.stdout.write(f"Iniciando {scraper.store_name}...")
 
                 try:
-                    categories = await scraper.fetch_categories(session, store_id)
+                    categories = await scraper.fetch_categories(session, store_id) #crawler
                     for category in categories:
                         for subcategory in category["subcategories"]:
                             products = []
                             category_vip_id = category["vip_id"]
                             subcategory_vip_id = subcategory["vip_id"]
-                            products = await scraper.fetch_products(session, category_vip_id, subcategory_vip_id)
+                            products = await scraper.fetch_products(session, category_vip_id, subcategory_vip_id) #scraper
                             await ProductService.save_product_list(store_id, subcategory_id=subcategory["id"], prod_list=products)
                             #break
-                        break
+                        #break
 
                 except Exception as e:
                     self.stdout.write(self.style.ERROR(f"Erro em {scraper.store_name}: {str(e)}"))

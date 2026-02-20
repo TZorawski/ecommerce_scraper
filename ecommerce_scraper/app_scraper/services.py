@@ -112,6 +112,7 @@ class VIPScraper:
             "domainkey": self.domain_key,
         }
 
+    # Crawler
     async def fetch_categories(self, session: aiohttp.ClientSession, store_id) -> Dict:
         url = self.store_base_url + "arvore"
         async with session.get(url, headers=self.headers) as resp:
@@ -133,6 +134,7 @@ class VIPScraper:
             return categories
             
 
+    # Scraper
     async def fetch_products(self, session: aiohttp.ClientSession, category_vip_id, subcategory_vip_id):
         page = 1
         all_products = []
