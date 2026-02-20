@@ -48,6 +48,7 @@ class SubcategoryService:
 
 class ProductService:
     @staticmethod
+    @sync_to_async
     def save_product(store_id, subcategory_id, prod_data) -> Product:
         regular_price = Decimal(str(prod_data['regular_price']))
         offer_price = Decimal(str(prod_data['offer_price'])) if prod_data.get('offer_price') else None
@@ -67,6 +68,28 @@ class ProductService:
             }
         )
         return product
+    
+    @staticmethod
+    @sync_to_async
+    def save_product_list(store_id, subcategory_id, prod_list):
+        subcategory = Subcategory.objects.get(id=subcategory_id)
+        store = Store.objects.get(id=store_id)
+
+        objs = [
+            Product(
+                vip_id = item['vip_id'],
+                name = item['name'],
+                ean = item.get('ean', ''),
+                regular_price = Decimal(str(item['regular_price'])),
+                is_offer = item.get('is_offer', False),
+                offer_price = Decimal(str(item['offer_price'])) if item.get('offer_price') else None,
+                check_date = timezone.now(),
+                store = store,
+                subcategory = subcategory
+            )
+            for item in prod_list
+        ]
+        Product.objects.bulk_create(objs, ignore_conflicts=True)
 
 class VIPScraper:
     vip_backend_url = os.getenv('VIP_BACKEND_URL')
@@ -93,11 +116,9 @@ class VIPScraper:
         url = self.store_base_url + "arvore"
         async with session.get(url, headers=self.headers) as resp:
             data = await resp.json()
-            print("===================================")
             
             categories = []
             for cat in data["data"]:
-                print('cat ' + cat["descricao"])
                 category = {"name": cat["descricao"], "vip_id": cat["classificacao_mercadologica_id"], "link": cat["link"], "store": store_id}
                 category_stored = await CategoryService.save_category(category_data=category)
                 subcategories = []
@@ -108,7 +129,7 @@ class VIPScraper:
                     subcategories.append(subcategory)
                 category['subcategories'] = subcategories
                 categories.append(category)
-            print("finish categorieeeeeeeeeeeeesssssssss")
+
             return categories
             
 
@@ -116,38 +137,28 @@ class VIPScraper:
         page = 1
         all_products = []
         
-        #while True:
-        #params = {
-        #    "categorySlug": category_slug,
-        #    "page": page,
-        #    "limit": 50
-        #}
-        
-        url = self.store_base_url + str(category_vip_id) + "/produtos?page=" + str(page) + "&secao=" + str(subcategory_vip_id)
-        async with session.get(url, headers=self.headers) as resp:
-            #if resp.status != 200:
-            #    break
-            
-            data = await resp.json()
-            print("===================================")
-            products = data.get('data', [])
-            
-            #if not products:
-            #    break
-            
-            for p in products:
-                print(p['descricao'])
-                if p.get('disponivel', False):
-                    all_products.append({
-                        "product_code": p['produto_id'],
-                        "name": p['descricao'],
-                        "ean": p.get('codigo_barras'),
-                        "regular_price": p['preco'],
-                        "is_offer": p['em_oferta'],
-                        "offer_price": p.get('oferta', {}).get('preco_oferta', 0) if p['em_oferta'] else 0,
-                        "category": p['secao_id'],
-                        "store_name": self.store_name
-                    })
-            page += 1
+        while True:
+            url = self.store_base_url + str(category_vip_id) + "/produtos?page=" + str(page) + "&secao=" + str(subcategory_vip_id)
+            async with session.get(url, headers=self.headers) as resp:
+                if resp.status != 200:
+                    break
+                
+                data = await resp.json()
+                products = data.get('data', [])
+                
+                if not products:
+                    break
+                
+                for p in products:
+                    if p.get('disponivel', False):
+                        all_products.append({
+                            "vip_id": p['produto_id'],
+                            "name": p['descricao'],
+                            "ean": p.get('codigo_barras'),
+                            "regular_price": p['preco'],
+                            "is_offer": p['em_oferta'],
+                            "offer_price": p.get('oferta', {}).get('preco_oferta', 0) if p['em_oferta'] else 0,
+                        })
+                page += 1
 
         return all_products
